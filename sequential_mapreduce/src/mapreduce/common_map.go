@@ -1,7 +1,10 @@
 package mapreduce
 
 import (
+	"bufio"
+	"encoding/json"
 	"hash/fnv"
+	"os"
 )
 
 // doMap does the job of a map worker: it reads one of the input files
@@ -14,6 +17,43 @@ func doMap(
 	nReduce int, // the number of reduce task that will be run ("R" in the paper)
 	mapF func(file string, contents string) []KeyValue,
 ) {
+	rawInFile, err := os.ReadFile(inFile) // just pass the file name
+	checkError(err)
+
+	kvs := mapF(inFile, string(rawInFile))
+
+	var reduceMap = map[uint32]([]KeyValue){}
+	for r := 0; r < nReduce; r++ {
+		reduceMap[uint32(r)] = make([]KeyValue, 0)
+	}
+
+	for _, kv := range kvs {
+		h := ihash(kv.Key) % uint32(nReduce)
+		reduceMap[h] = append(reduceMap[h], kv)
+	}
+
+	for r := 0; r < nReduce; r++ {
+		fileName := reduceName(jobName, mapTaskNumber, r)
+
+		file, err := os.Create(fileName)
+		checkError(err)
+
+		w := bufio.NewWriter(file)
+
+		enc := json.NewEncoder(w)
+
+		for _, kv := range reduceMap[uint32(r)] {
+			err := enc.Encode(&kv)
+			checkError(err)
+		}
+
+		w.Flush()
+		file.Close()
+	}
+
+	// kvs를 잘 json으로 만들어서 reduceName 파일에 저장함
+	// makeInputFile 참조
+
 	// TODO:
 	// You will need to write this function.
 	// You can find the filename for this map task's input to reduce task number

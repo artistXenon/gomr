@@ -1,5 +1,11 @@
 package mapreduce
 
+import (
+	"bufio"
+	"encoding/json"
+	"os"
+)
+
 // doReduce does the job of a reduce worker: it reads the intermediate
 // key/value pairs (produced by the map phase) for this task, sorts the
 // intermediate key/value pairs by key, calls the user-defined reduce function
@@ -10,6 +16,40 @@ func doReduce(
 	nMap int, // the number of map tasks that were run ("M" in the paper)
 	reduceF func(key string, values []string) string,
 ) {
+	kvMap := map[string]([]string){}
+
+	for m := 0; m < nMap; m++ {
+		fileName := reduceName(jobName, m, reduceTaskNumber)
+
+		readFile, err := os.Open(fileName)
+		checkError(err)
+		dec := json.NewDecoder(readFile)
+
+		err = nil
+		kv := KeyValue{}
+		err = dec.Decode(&kv)
+		for err == nil {
+			kvMap[kv.Key] = append(kvMap[kv.Key], kv.Value)
+			err = dec.Decode(&kv)
+		}
+		readFile.Close()
+	}
+
+	merge := mergeName(jobName, reduceTaskNumber)
+	mergeFile, err := os.Create(merge)
+	w := bufio.NewWriter(mergeFile)
+	checkError(err)
+
+	enc := json.NewEncoder(w)
+
+	for k, v := range kvMap {
+		enc.Encode(KeyValue{k, reduceF(k, v)})
+	}
+
+	w.Flush()
+	mergeFile.Close()
+	//doMap에서 만든 reduceName 파일을 읽어서 reduceF 돌린 output을 mergeName에 json으로 저장
+
 	// TODO:
 	// You will need to write this function.
 	// You can find the intermediate file for this reduce task from map task number
